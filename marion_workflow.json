@@ -1,0 +1,1230 @@
+{
+  "name": "M.A.R.I.O.N. - AeroSync Daily Operations",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 7 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Morning Trigger 07:30",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "id": "node-001"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "tableId": "missions",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "created_at",
+              "condition": "greaterThan",
+              "keyValue": "={{ $now.minus({hours: 24}).toISO() }}"
+            }
+          ]
+        }
+      },
+      "name": "Collect Overnight Mission Data",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [450, 200],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase - AeroSync"
+        }
+      },
+      "id": "node-002"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "tableId": "system_logs",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "timestamp",
+              "condition": "greaterThan",
+              "keyValue": "={{ $now.minus({hours: 24}).toISO() }}"
+            }
+          ]
+        }
+      },
+      "name": "Collect System Logs",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [450, 400],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase - AeroSync"
+        }
+      },
+      "id": "node-003"
+    },
+    {
+      "parameters": {
+        "url": "https://api.aerosync.internal/diagnostics/spec",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "system_ids",
+              "value": "={{ $json.system_ids }}"
+            },
+            {
+              "name": "check_types",
+              "value": "[\"GPS\", \"telemetry\", \"equipment\"]"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "Run System Diagnostics (S.P.E.C.)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Internal API Key"
+        }
+      },
+      "id": "node-004",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "functionCode": "const missionData = $input.first().json;\nconst systemLogs = $input.all()[1].json;\nconst diagnostics = $input.all()[2].json;\n\nconst totalFlights = missionData.length;\nconst successfulFlights = missionData.filter(m => m.status === 'completed').length;\nconst flightUptime = (successfulFlights / totalFlights * 100).toFixed(2);\n\nconst nominalHours = 10;\nconst effectiveHours = 8;\nconst crewEfficiency = ((effectiveHours / nominalHours) * 100).toFixed(2);\n\nconst errors = systemLogs.filter(log => log.level === 'error');\nconst errorFrequency = errors.length;\n\nconst maintenanceNeeds = diagnostics.equipment_health?.filter(e => e.status === 'needs_maintenance') || [];\n\nreturn {\n  json: {\n    kpis: {\n      flight_uptime_percentage: flightUptime,\n      crew_efficiency: crewEfficiency,\n      error_frequency: errorFrequency,\n      maintenance_count: maintenanceNeeds.length\n    },\n    raw_data: {\n      total_flights: totalFlights,\n      successful_flights: successfulFlights,\n      errors: errors,\n      maintenance_needs: maintenanceNeeds\n    },\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "name": "Compute KPIs",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "id": "node-005"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "combineOperation": "any"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.kpis.flight_uptime_percentage }}",
+              "rightValue": 85,
+              "operator": {
+                "type": "number",
+                "operation": "smaller"
+              }
+            },
+            {
+              "leftValue": "={{ $json.kpis.error_frequency }}",
+              "rightValue": 10,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            },
+            {
+              "leftValue": "={{ $json.raw_data.maintenance_needs.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "larger"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Anomaly Detection",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "id": "node-006"
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.raw_data.maintenance_needs.length }}",
+                    "rightValue": 0,
+                    "operator": {
+                      "type": "number",
+                      "operation": "larger"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "maintenance"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.kpis.error_frequency }}",
+                    "rightValue": 5,
+                    "operator": {
+                      "type": "number",
+                      "operation": "largerEqual"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "signal_issue"
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "name": "Route Anomaly Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1250, 200],
+      "id": "node-007"
+    },
+    {
+      "parameters": {
+        "url": "https://api.aerosync.internal/agents/nest/assign",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "issue_type",
+              "value": "signal_diagnostics"
+            },
+            {
+              "name": "priority",
+              "value": "high"
+            },
+            {
+              "name": "data",
+              "value": "={{ $json }}"
+            }
+          ]
+        }
+      },
+      "name": "Assign N.E.S.T. Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1450, 100],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Internal API Key"
+        }
+      },
+      "id": "node-008"
+    },
+    {
+      "parameters": {
+        "url": "https://api.aerosync.internal/agents/vera/assign",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "issue_type",
+              "value": "data_validation"
+            },
+            {
+              "name": "priority",
+              "value": "medium"
+            },
+            {
+              "name": "data",
+              "value": "={{ $json }}"
+            }
+          ]
+        }
+      },
+      "name": "Assign V.E.R.A. Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1450, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Internal API Key"
+        }
+      },
+      "id": "node-009"
+    },
+    {
+      "parameters": {
+        "functionCode": "const kpiData = $input.first().json;\n\nconst briefSummary = {\n  title: \"M.A.R.I.O.N. Morning Metrics Sync - 07:30\",\n  timestamp: new Date().toISOString(),\n  kpis: {\n    flight_uptime: `${kpiData.kpis.flight_uptime_percentage}%`,\n    crew_efficiency: `${kpiData.kpis.crew_efficiency}%`,\n    errors_24h: kpiData.kpis.error_frequency,\n    maintenance_items: kpiData.kpis.maintenance_count\n  },\n  equipment_health: kpiData.raw_data.maintenance_needs.length > 0 ? \n    `⚠️ ${kpiData.raw_data.maintenance_needs.length} items require attention` : \n    \"✅ All systems nominal\",\n  summary: `Processed ${kpiData.raw_data.total_flights} flights with ${kpiData.raw_data.successful_flights} successful completions.`,\n  alerts: kpiData.kpis.error_frequency > 5 ? \n    [`High error frequency detected: ${kpiData.kpis.error_frequency} errors in 24h`] : []\n};\n\nconst slackMessage = `\n*${briefSummary.title}*\n\n📊 *Key Performance Indicators*\n• Flight Uptime: ${briefSummary.kpis.flight_uptime}\n• Crew Efficiency: ${briefSummary.kpis.crew_efficiency}\n• Errors (24h): ${briefSummary.kpis.errors_24h}\n• Maintenance Items: ${briefSummary.kpis.maintenance_items}\n\n🔧 *Equipment Status*\n${briefSummary.equipment_health}\n\n📝 *Summary*\n${briefSummary.summary}\n${briefSummary.alerts.length > 0 ? '\\n⚠️ *Alerts*\\n' + briefSummary.alerts.map(a => '• ' + a).join('\\n') : ''}\n`;\n\nconst emailBody = `\n<h2>${briefSummary.title}</h2>\n<p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>\n\n<h3>Key Performance Indicators</h3>\n<ul>\n  <li><strong>Flight Uptime:</strong> ${briefSummary.kpis.flight_uptime}</li>\n  <li><strong>Crew Efficiency:</strong> ${briefSummary.kpis.crew_efficiency}</li>\n  <li><strong>Errors (24h):</strong> ${briefSummary.kpis.errors_24h}</li>\n  <li><strong>Maintenance Items:</strong> ${briefSummary.kpis.maintenance_items}</li>\n</ul>\n\n<h3>Equipment Status</h3>\n<p>${briefSummary.equipment_health}</p>\n\n<h3>Summary</h3>\n<p>${briefSummary.summary}</p>\n\n${briefSummary.alerts.length > 0 ? '<h3>Alerts</h3><ul>' + briefSummary.alerts.map(a => '<li>' + a + '</li>').join('') + '</ul>' : ''}\n`;\n\nreturn {\n  json: {\n    slack_message: slackMessage,\n    email_body: emailBody,\n    brief_data: briefSummary\n  }\n};"
+      },
+      "name": "Generate Morning Brief",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 500],
+      "id": "node-010"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Split Distribution",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1250, 500],
+      "id": "node-011"
+    },
+    {
+      "parameters": {
+        "channelId": {
+          "__rl": true,
+          "value": "C12345678",
+          "mode": "id"
+        },
+        "text": "={{ $json.slack_message }}",
+        "otherOptions": {}
+      },
+      "name": "Post to Slack Leadership",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1450, 450],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack - AeroSync"
+        }
+      },
+      "id": "node-012"
+    },
+    {
+      "parameters": {
+        "fromEmail": "marion@aerosync.solutions",
+        "toEmail": "ceo@aerosync.solutions, operations@aerosync.solutions",
+        "subject": "M.A.R.I.O.N. Morning Brief - {{ $now.format('yyyy-MM-dd') }}",
+        "emailType": "html",
+        "message": "={{ $json.email_body }}",
+        "options": {}
+      },
+      "name": "Email Executive Team",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1450, 550],
+      "credentials": {
+        "smtp": {
+          "id": "4",
+          "name": "SMTP - AeroSync"
+        }
+      },
+      "id": "node-013"
+    },
+    {
+      "parameters": {
+        "url": "https://dashboard.aerosync.internal/api/update",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "tiles",
+              "value": "={{ $json.brief_data }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "name": "Update Mission Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1250, 650],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5",
+          "name": "Dashboard API Key"
+        }
+      },
+      "id": "node-014"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 9-16 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Midday Mission Loop (Every 15min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 900],
+      "id": "node-015"
+    },
+    {
+      "parameters": {
+        "url": "https://api.aerosync.internal/weather/analysis",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "mission_area",
+              "value": "={{ $json.coordinates }}"
+            },
+            {
+              "name": "forecast_hours",
+              "value": 6
+            }
+          ]
+        }
+      },
+      "name": "M.A.R.I.O.N. Weather Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 800],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Internal API Key"
+        }
+      },
+      "id": "node-016"
+    },
+    {
+      "parameters": {
+        "url": "https://api.aerosync.internal/agents/alta/terrain",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "coordinates",
+              "value": "={{ $json.coordinates }}"
+            },
+            {
+              "name": "analysis_type",
+              "value": "full"
+            }
+          ]
+        }
+      },
+      "name": "A.L.T.A. Terrain Analysis",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 900],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Internal API Key"
+        }
+      },
+      "id": "node-017"
+    },
+    {
+      "parameters": {
+        "url": "https://api.aerosync.internal/agents/vera/imagery-check",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "mission_id",
+              "value": "={{ $json.mission_id }}"
+            },
+            {
+              "name": "pipeline_check",
+              "value": true
+            }
+          ]
+        }
+      },
+      "name": "V.E.R.A. Imagery Pipeline Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [650, 1000],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Internal API Key"
+        }
+      },
+      "id": "node-018"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "name": "Merge Pre-Flight Intelligence",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [850, 900],
+      "id": "node-019"
+    },
+    {
+      "parameters": {
+        "functionCode": "const weather = $input.all()[0].json;\nconst terrain = $input.all()[1].json;\nconst imagery = $input.all()[2].json;\n\nconst riskScore = (\n  (weather.risk_level || 0) * 0.4 +\n  (terrain.complexity_score || 0) * 0.3 +\n  (imagery.compatibility_score > 80 ? 0 : 30) * 0.3\n);\n\nconst estimatedCost = terrain.estimated_flight_time * 125; // $125/hr\n\nconst consultation = {\n  mission_id: $input.first().json.mission_id || `MISS-${Date.now()}`,\n  timestamp: new Date().toISOString(),\n  weather_summary: {\n    safe_window: weather.optimal_window,\n    conditions: weather.conditions,\n    risk_level: weather.risk_level\n  },\n  terrain_summary: {\n    complexity: terrain.complexity_level,\n    launch_points: terrain.recommended_launch_points,\n    obstacles: terrain.flight_path_challenges\n  },\n  imagery_status: imagery.pipeline_compatible ? \"✅ Compatible\" : \"⚠️ Requires adjustment\",\n  overall_risk: riskScore < 30 ? \"LOW\" : riskScore < 60 ? \"MEDIUM\" : \"HIGH\",\n  estimated_cost: `$${estimatedCost.toFixed(2)}`,\n  platform: \"Skydio X2\",\n  crew_recommendation: terrain.crew_size_needed || 2,\n  tjap_required: true\n};\n\nreturn { json: consultation };"
+      },
+      "name": "Generate Consultation Brief",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 900],
+      "id": "node-020"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Split T.J.A.P. Notifications",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1250, 900],
+      "id": "node-021"
+    },
+    {
+      "parameters": {
+        "fromEmail": "marion@aerosync.solutions",
+        "toEmail": "tony.jeffries@aerosync.solutions",
+        "subject": "🚁 T.J.A.P. APPROVAL REQUIRED - Mission {{ $json.mission_id }}",
+        "emailType": "html",
+        "message": "=<h2>Mission Consultation Brief - T.J.A.P. Protocol</h2>\n<p><strong>Mission ID:</strong> {{ $json.mission_id }}</p>\n<p><strong>Risk Level:</strong> {{ $json.overall_risk }}</p>\n<p><strong>Est. Cost:</strong> {{ $json.estimated_cost }}</p>\n<p><strong>Platform:</strong> {{ $json.platform }}</p>\n\n<h3>Weather</h3>\n<p>{{ $json.weather_summary.conditions }}</p>\n<p><strong>Safe Window:</strong> {{ $json.weather_summary.safe_window }}</p>\n\n<h3>Terrain</h3>\n<p><strong>Complexity:</strong> {{ $json.terrain_summary.complexity }}</p>\n\n<h3>Action Required</h3>\n<p>Please review and respond:</p>\n<a href=\"https://dashboard.aerosync.internal/approve/{{ $json.mission_id }}\" style=\"background:#28a745;color:white;padding:10px 20px;text-decoration:none;display:inline-block;margin:5px;\">APPROVE</a>\n<a href=\"https://dashboard.aerosync.internal/modify/{{ $json.mission_id }}\" style=\"background:#ffc107;color:black;padding:10px 20px;text-decoration:none;display:inline-block;margin:5px;\">MODIFY</a>\n<a href=\"https://dashboard.aerosync.internal/decline/{{ $json.mission_id }}\" style=\"background:#dc3545;color:white;padding:10px 20px;text-decoration:none;display:inline-block;margin:5px;\">DECLINE</a>",
+        "options": {}
+      },
+      "name": "Email T.J.A.P. Request",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [1450, 850],
+      "credentials": {
+        "smtp": {
+          "id": "4",
+          "name": "SMTP - AeroSync"
+        }
+      },
+      "id": "node-022"
+    },
+    {
+      "parameters": {
+        "url": "https://dashboard.aerosync.internal/api/alerts",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "type",
+              "value": "tjap_approval"
+            },
+            {
+              "name": "mission_data",
+              "value": "={{ $json }}"
+            },
+            {
+              "name": "priority",
+              "value": "high"
+            }
+          ]
+        }
+      },
+      "name": "Create Dashboard Alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1450, 950],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5",
+          "name": "Dashboard API Key"
+        }
+      },
+      "id": "node-023"
+    },
+    {
+      "parameters": {
+        "resumeWebhook": true,
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "name": "Await T.J.A.P. Response",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1650, 900],
+      "webhookId": "tjap-response-webhook",
+      "id": "node-024"
+    },
+    {
+      "parameters": {
+        "mode": "rules",
+        "rules": {
+          "rules": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.decision }}",
+                    "rightValue": "APPROVE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "approved"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.decision }}",
+                    "rightValue": "MODIFY",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "modify"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.decision }}",
+                    "rightValue": "DECLINE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "declined"
+            }
+          ]
+        },
+        "fallbackOutput": "extra"
+      },
+      "name": "T.J.A.P. Decision Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1850, 900],
+      "id": "node-025"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "tableId": "mission_approvals",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldName": "mission_id",
+              "fieldValue": "={{ $json.body.mission_id }}"
+            },
+            {
+              "fieldName": "status",
+              "fieldValue": "authorized"
+            },
+            {
+              "fieldName": "approved_by",
+              "fieldValue": "tony.jeffries"
+            },
+            {
+              "fieldName": "approved_at",
+              "fieldValue": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "name": "Log Authorization",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [2050, 800],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase - AeroSync"
+        }
+      },
+      "id": "node-026"
+    },
+    {
+      "parameters": {
+        "url": "https://api.skydio.com/v1/missions/execute",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "mission_id",
+              "value": "={{ $json.body.mission_id }}"
+            },
+            {
+              "name": "flight_plan",
+              "value": "={{ $json.body.flight_plan }}"
+            },
+            {
+              "name": "faa_zone",
+              "value": "zone_2"
+            }
+          ]
+        }
+      },
+      "name": "Execute Skydio Mission",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2250, 800],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "6",
+          "name": "Skydio API Key"
+        }
+      },
+      "id": "node-027"
+    },
+    {
+      "parameters": {
+        "channelId": {
+          "__rl": true,
+          "value": "C12345678",
+          "mode": "id"
+        },
+        "text": "=⚠️ Mission {{ $json.body.mission_id }} requires MODIFICATION per T.J.A.P. protocol.\n\nNotes: {{ $json.body.modification_notes }}",
+        "otherOptions": {}
+      },
+      "name": "Notify Modification Required",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [2050, 900],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack - AeroSync"
+        }
+      },
+      "id": "node-028"
+    },
+    {
+      "parameters": {
+        "channelId": {
+          "__rl": true,
+          "value": "C12345678",
+          "mode": "id"
+        },
+        "text": "=🚫 Mission {{ $json.body.mission_id }} DECLINED by T.J.A.P.\n\nReason: {{ $json.body.decline_reason }}",
+        "otherOptions": {}
+      },
+      "name": "Notify Mission Declined",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [2050, 1000],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack - AeroSync"
+        }
+      },
+      "id": "node-029"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 3
+            }
+          ]
+        }
+      },
+      "name": "GPS Debug Loop (Every 3min)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 1200],
+      "id": "node-030"
+    },
+    {
+      "parameters": {
+        "url": "https://api.aerosync.internal/agents/vera/gps-debug",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "check_type",
+              "value": "drift_detection"
+            },
+            {
+              "name": "auto_correct",
+              "value": true
+            }
+          ]
+        }
+      },
+      "name": "V.E.R.A. GPS Debug Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [450, 1200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "2",
+          "name": "Internal API Key"
+        }
+      },
+      "id": "node-031"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 17 * * *"
+            }
+          ]
+        }
+      },
+      "name": "Evening Trigger 17:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 1450],
+      "id": "node-032"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "tableId": "missions",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "created_at",
+              "condition": "greaterThan",
+              "keyValue": "={{ $now.startOf('day').toISO() }}"
+            }
+          ]
+        }
+      },
+      "name": "Aggregate Daily Mission Data",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [450, 1350],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase - AeroSync"
+        }
+      },
+      "id": "node-033"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "tableId": "crew_logs",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "log_date",
+              "condition": "equals",
+              "keyValue": "={{ $now.toFormat('yyyy-MM-dd') }}"
+            }
+          ]
+        }
+      },
+      "name": "Aggregate Daily Crew Data",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [450, 1450],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase - AeroSync"
+        }
+      },
+      "id": "node-034"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "tableId": "system_logs",
+        "returnAll": true,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "timestamp",
+              "condition": "greaterThan",
+              "keyValue": "={{ $now.startOf('day').toISO() }}"
+            }
+          ]
+        }
+      },
+      "name": "Aggregate Daily System Logs",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [450, 1550],
+      "credentials": {
+        "supabaseApi": {
+          "id": "1",
+          "name": "Supabase - AeroSync"
+        }
+      },
+      "id": "node-035"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combinationMode": "mergeByPosition",
+        "options": {}
+      },
+      "name": "Merge Daily Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [650, 1450],
+      "id": "node-036"
+    },
+    {
+      "parameters": {
+        "functionCode": "const missions = $input.all()[0].json;\nconst crewLogs = $input.all()[1].json;\nconst systemLogs = $input.all()[2].json;\n\n// Calculate actual vs projected metrics\nconst totalMissions = missions.length;\nconst completedMissions = missions.filter(m => m.status === 'completed').length;\nconst projectedMissions = 12; // Daily target\n\nconst totalCost = missions.reduce((sum, m) => sum + (m.cost || 0), 0);\nconst projectedCost = projectedMissions * 750; // $750 per mission average\n\nconst avgMissionTime = missions.reduce((sum, m) => sum + (m.duration_minutes || 0), 0) / totalMissions;\nconst projectedTime = 90; // 90 minutes per mission\n\n// Crew performance\nconst policyViolations = crewLogs.filter(log => log.policy_violation === true).length;\nconst crewEfficiency = crewLogs.reduce((sum, log) => sum + (log.efficiency_score || 0), 0) / crewLogs.length;\n\n// System reliability\nconst criticalErrors = systemLogs.filter(log => log.level === 'critical').length;\nconst systemUptime = ((totalMissions - criticalErrors) / totalMissions * 100).toFixed(2);\n\n// Identify issues\nconst issues = [];\nif (completedMissions < projectedMissions * 0.9) {\n  issues.push({\n    type: 'underperformance',\n    severity: 'high',\n    description: `Only ${completedMissions} of ${projectedMissions} projected missions completed (${(completedMissions/projectedMissions*100).toFixed(1)}%)`\n  });\n}\n\nif (totalCost > projectedCost * 1.15) {\n  issues.push({\n    type: 'cost_overrun',\n    severity: 'medium',\n    description: `Cost exceeded projection by ${((totalCost/projectedCost - 1) * 100).toFixed(1)}%: ${totalCost.toFixed(2)} vs ${projectedCost.toFixed(2)}`\n  });\n}\n\nif (policyViolations > 0) {\n  issues.push({\n    type: 'compliance',\n    severity: 'high',\n    description: `${policyViolations} policy violations recorded`\n  });\n}\n\nif (criticalErrors > 2) {\n  issues.push({\n    type: 'system_reliability',\n    severity: 'critical',\n    description: `${criticalErrors} critical system errors detected`\n  });\n}\n\n// Cost leaks\nconst costLeaks = [];\nif (avgMissionTime > projectedTime * 1.2) {\n  costLeaks.push(`Extended mission times: ${avgMissionTime.toFixed(0)}min vs ${projectedTime}min target (+${((avgMissionTime/projectedTime - 1) * 100).toFixed(1)}%)`);\n}\n\nconst maintenanceDelays = missions.filter(m => m.delay_reason === 'maintenance').length;\nif (maintenanceDelays > 2) {\n  costLeaks.push(`${maintenanceDelays} missions delayed due to maintenance`);\n}\n\n// Safety gaps\nconst safetyGaps = [];\nconst weatherAborts = missions.filter(m => m.abort_reason === 'weather').length;\nif (weatherAborts > 0) {\n  safetyGaps.push(`${weatherAborts} weather-related aborts - review pre-flight protocols`);\n}\n\nconst equipmentFailures = systemLogs.filter(log => log.category === 'equipment_failure').length;\nif (equipmentFailures > 1) {\n  safetyGaps.push(`${equipmentFailures} equipment failures - inspect maintenance schedule`);\n}\n\nreturn {\n  json: {\n    performance_analysis: {\n      missions: {\n        completed: completedMissions,\n        projected: projectedMissions,\n        variance: completedMissions - projectedMissions\n      },\n      cost: {\n        actual: totalCost,\n        projected: projectedCost,\n        variance_percent: ((totalCost/projectedCost - 1) * 100).toFixed(2)\n      },\n      time: {\n        avg_mission_minutes: avgMissionTime.toFixed(0),\n        projected_minutes: projectedTime,\n        efficiency: (projectedTime/avgMissionTime * 100).toFixed(1)\n      },\n      reliability: {\n        system_uptime: systemUptime,\n        critical_errors: criticalErrors\n      },\n      crew: {\n        efficiency_score: crewEfficiency.toFixed(1),\n        policy_violations: policyViolations\n      }\n    },\n    issues: issues,\n    cost_leaks: costLeaks,\n    safety_gaps: safetyGaps,\n    exceeds_threshold: issues.some(i => i.severity === 'high' || i.severity === 'critical')\n  }\n};"
+      },
+      "name": "Generate Performance Analysis",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 1450],
+      "id": "node-037"
+    },
+    {
+      "parameters": {
+        "functionCode": "const analysis = $input.first().json;\nconst perf = analysis.performance_analysis;\n\n// Identify accomplishments\nconst accomplishments = [];\n\nif (perf.missions.completed >= perf.missions.projected * 0.95) {\n  accomplishments.push(`✅ Mission target achieved: ${perf.missions.completed}/${perf.missions.projected} missions completed`);\n}\n\nif (parseFloat(perf.reliability.system_uptime) > 95) {\n  accomplishments.push(`✅ Excellent system reliability: ${perf.reliability.system_uptime}% uptime`);\n}\n\nif (perf.crew.policy_violations === 0) {\n  accomplishments.push(`✅ Zero policy violations - full crew compliance`);\n}\n\nif (accomplishments.length === 0) {\n  accomplishments.push(`Operations maintained despite challenges`);\n}\n\n// Ensure we have 3 accomplishments\nwhile (accomplishments.length < 3) {\n  if (perf.cost.actual < perf.cost.projected) {\n    accomplishments.push(`✅ Cost efficiency: Operations under budget by ${(perf.cost.projected - perf.cost.actual).toFixed(2)}`);\n  } else if (perf.reliability.critical_errors === 0) {\n    accomplishments.push(`✅ Zero critical system errors today`);\n  } else {\n    accomplishments.push(`✅ Continued operational capability maintained`);\n  }\n}\n\n// Format issues/deviations\nconst deviations = analysis.issues.slice(0, 3).map(issue => \n  `⚠️ ${issue.type.toUpperCase()}: ${issue.description}`\n);\n\n// Ensure we have 3 deviations (or state none)\nwhile (deviations.length < 3) {\n  if (analysis.cost_leaks.length > 0) {\n    deviations.push(`⚠️ EFFICIENCY: ${analysis.cost_leaks.shift()}`);\n  } else if (analysis.safety_gaps.length > 0) {\n    deviations.push(`⚠️ SAFETY: ${analysis.safety_gaps.shift()}`);\n  } else {\n    deviations.push(`✓ No additional deviations detected`);\n  }\n}\n\n// Strategic recommendation\nlet recommendation = \"\";\nif (analysis.issues.length > 0) {\n  const topIssue = analysis.issues[0];\n  if (topIssue.type === 'underperformance') {\n    recommendation = \"📈 STRATEGIC REC: Increase operational capacity through additional crew training or equipment acquisition to meet demand projections.\";\n  } else if (topIssue.type === 'cost_overrun') {\n    recommendation = \"💰 STRATEGIC REC: Implement tighter cost controls and review mission pricing models to improve margin performance.\";\n  } else if (topIssue.type === 'compliance') {\n    recommendation = \"📋 STRATEGIC REC: Mandatory crew retraining on policy compliance; consider updated SOPs and accountability measures.\";\n  } else if (topIssue.type === 'system_reliability') {\n    recommendation = \"🔧 STRATEGIC REC: Immediate system audit and preventive maintenance protocol enhancement to ensure operational continuity.\";\n  }\n} else if (analysis.cost_leaks.length > 0) {\n  recommendation = \"⚡ STRATEGIC REC: Optimize mission timing and resource allocation to reduce operational inefficiencies and improve profitability.\";\n} else {\n  recommendation = \"🎯 STRATEGIC REC: Continue current operational standards while exploring opportunities for geographic expansion or service line diversification.\";\n}\n\nconst report = {\n  title: \"M.A.R.I.O.N. Executive Advisory - 18:00\",\n  date: new Date().toLocaleDateString(),\n  accomplishments: accomplishments,\n  deviations: deviations,\n  strategic_recommendation: recommendation,\n  metrics_summary: {\n    missions_completed: perf.missions.completed,\n    system_uptime: perf.reliability.system_uptime + '%',\n    cost_performance: parseFloat(perf.cost.variance_percent) < 0 ? 'Under Budget' : 'Over Budget',\n    crew_compliance: perf.crew.policy_violations === 0 ? 'Compliant' : 'Issues Detected'\n  }\n};\n\nconst htmlReport = `\n<div style=\"font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto;\">\n  <h1 style=\"color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px;\">${report.title}</h1>\n  <p style=\"color: #7f8c8d; font-size: 14px;\"><strong>Report Date:</strong> ${report.date}</p>\n  \n  <h2 style=\"color: #27ae60; margin-top: 30px;\">🎯 Key Accomplishments</h2>\n  <ul style=\"line-height: 1.8;\">\n    ${report.accomplishments.map(a => `<li>${a}</li>`).join('')}\n  </ul>\n  \n  <h2 style=\"color: #e74c3c; margin-top: 30px;\">⚠️ Issues & Deviations</h2>\n  <ul style=\"line-height: 1.8;\">\n    ${report.deviations.map(d => `<li>${d}</li>`).join('')}\n  </ul>\n  \n  <h2 style=\"color: #9b59b6; margin-top: 30px;\">💡 Strategic Recommendation</h2>\n  <p style=\"background: #f8f9fa; padding: 15px; border-left: 4px solid #9b59b6; font-size: 16px;\">\n    ${report.strategic_recommendation}\n  </p>\n  \n  <h2 style=\"color: #34495e; margin-top: 30px;\">📊 Metrics Summary</h2>\n  <table style=\"width: 100%; border-collapse: collapse; margin-top: 15px;\">\n    <tr style=\"background: #ecf0f1;\">\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\"><strong>Missions Completed</strong></td>\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\">${report.metrics_summary.missions_completed}</td>\n    </tr>\n    <tr>\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\"><strong>System Uptime</strong></td>\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\">${report.metrics_summary.system_uptime}</td>\n    </tr>\n    <tr style=\"background: #ecf0f1;\">\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\"><strong>Cost Performance</strong></td>\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\">${report.metrics_summary.cost_performance}</td>\n    </tr>\n    <tr>\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\"><strong>Crew Compliance</strong></td>\n      <td style=\"padding: 10px; border: 1px solid #bdc3c7;\">${report.metrics_summary.crew_compliance}</td>\n    </tr>\n  </table>\n  \n  <p style=\"margin-top: 30px; color: #7f8c8d; font-size: 12px; border-top: 1px solid #ecf0f1; padding-top: 15px;\">\n    <em>Generated by M.A.R.I.O.N. Operations Intelligence System</em><br>\n    AeroSync Solutions | Automated Executive Advisory\n  </p>\n</div>\n`;\n\nreturn {\n  json: {\n    report: report,\n    html_report: htmlReport,\n    raw_analysis: analysis\n  }\n};"
+      },
+      "name": "Draft CEO Advisory Summary",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1050, 1450],
+      "id": "node-038"
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "name": "Split Executive Distribution",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1250, 1450],
+      "id": "node-039"
+    },
+    {
+      "parameters": {
+        "url": "https://dashboard.aerosync.internal/api/executive-brief",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "report",
+              "value": "={{ $json.report }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        }
+      },
+      "name": "POST to CEO Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1450, 1400],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "5",
+          "name": "Dashboard API Key"
+        }
+      },
+      "id": "node-040"
+    },
+    {
+      "parameters": {
+        "operation": "upload",
+        "bucketName": "aerosync-daily-logs",
+        "fileName": "={{ $now.toFormat('yyyy-MM-dd') }}-daily-logs.json",
+        "binaryData": false,
+        "fileContent": "={{ JSON.stringify($json.raw_analysis, null, 2) }}",
+        "options": {
+          "acl": "private",
+          "contentType": "application/json"
+        }
+      },
+      "name": "Archive to S3",
+      "type": "n8n-nodes-base.aws",
+      "typeVersion": 1,
+      "position": [1450, 1500],
+      "credentials": {
+        "aws": {
+          "id": "7",
+          "name": "AWS S3 - AeroSync"
+        }
+      },
+      "id": "node-041"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.raw_analysis.exceeds_threshold }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check Deviation Thresholds",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1650, 1450],
+      "id": "node-042"
+    },
+    {
+      "parameters": {
+        "channelId": {
+          "__rl": true,
+          "value": "C12345678",
+          "mode": "id"
+        },
+        "text": "=🚨 HIGH-PRIORITY DEVIATION ALERT\n\n*Critical issues detected in today's operations:*\n\n{{ $json.raw_analysis.issues.filter(i => i.severity === 'high' || i.severity === 'critical').map(i => `• ${i.type.toUpperCase()}: ${i.description}`).join('\\n') }}\n\n*Action Required:* Early morning review scheduled. Please review CEO dashboard for full details.",
+        "otherOptions": {}
+      },
+      "name": "Flag for Review",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 2.1,
+      "position": [1850, 1350],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack - AeroSync"
+        }
+      },
+      "id": "node-043"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "combineOperation": "any"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.raw_analysis.performance_analysis.missions.variance }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "largerEqual"
+              }
+            },
+            {
+              "leftValue": "={{ $json.raw_analysis.performance_analysis.crew.policy_violations }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ]
+        }
+      },
+      "name": "Check High Performance",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1850, 1550],
+      "id": "node-044"
+    },
+    {
+      "parameters": {
+        "fromEmail": "marion@aerosync.solutions",
+        "toEmail": "={{ $json.crew_emails }}",
+        "subject": "🌟 Outstanding Performance Recognition",
+        "emailType": "html",
+        "message": "=<h2>Performance Recognition</h2>\n<p>Dear Team,</p>\n<p>M.A.R.I.O.N. has identified your outstanding performance in today's operations:</p>\n<ul>\n  <li>✅ Mission targets met or exceeded</li>\n  <li>✅ Zero policy violations</li>\n  <li>✅ Excellent operational efficiency</li>\n</ul>\n<p>Your professionalism and dedication to safety and quality standards exemplify the AeroSync mission. Thank you for your continued excellence.</p>\n<p><strong>Keep up the exceptional work!</strong></p>\n<p style=\"margin-top: 20px; color: #7f8c8d; font-size: 12px;\">— M.A.R.I.O.N. Operations Intelligence<br>AeroSync Solutions</p>",
+        "options": {}
+      },
+      "name": "Send Recognition Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2050, 1550],
+      "credentials": {
+        "smtp": {
+          "id": "4",
+          "name": "SMTP - AeroSync"
+        }
+      },
+      "id": "node-045"
+    },
+    {
+      "parameters": {
+        "content": "## ERROR HANDLING\nAll HTTP Request nodes have onError set to continueErrorOutput to prevent workflow failures",
+        "height": 80,
+        "width": 300
+      },
+      "name": "Note - Error Handling",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [220, 100],
+      "id": "note-001"
+    },
+    {
+      "parameters": {
+        "content": "## MORNING PHASE (07:30)\nCollect overnight data, run diagnostics, compute KPIs, detect anomalies, distribute morning brief",
+        "height": 80,
+        "width": 400
+      },
+      "name": "Note - Morning Phase",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [220, 200],
+      "id": "note-002"
+    },
+    {
+      "parameters": {
+        "content": "## MIDDAY PHASE (09:00-16:30)\nAI-Augmented Inspection Workflow with T.J.A.P. approval protocol",
+        "height": 80,
+        "width": 400
+      },
+      "name": "Note - Midday Phase",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [220, 800],
+      "id": "note-003"
+    },
+    {
+      "parameters": {
+        "content": "## EVENING PHASE (17:00-18:30)\nAggregate daily data, generate performance analysis, send executive brief, handle deviations",
+        "height": 80,
+        "width": 400
+      },
+      "name": "Note - Evening Phase",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [220, 1350],
+      "id": "note-004"
+    }
+  ],
+  "connections": {
+    "Morning Trigger 07:30": {
+      "main": [
+        [
+          {
+            "node": "Collect Overnight Mission Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Collect System Logs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect Overnight Mission Data": {
+      "main": [
+        [
+          {
+            "node": "Run System Diagnostics (S.P.E.C.)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Collect System Logs": {
+      "main": [
+        [
+          {
+            "node": "Run System Diagnostics (S.P.E.C.)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run System Diagnostics (S.P.E.C.)": {
+      "main": [
+        [
+          {
+            "node": "Compute KPIs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute KPIs": {
+      "main": [
+        [
+          {
+            "node": "Anomaly Detection",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Generate Morning Brief",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anomaly Detection": {
+      "main": [
+        [
+          {
+            "node": "Route Anomaly Type",
+            "type

@@ -1,0 +1,22 @@
+﻿<button id="donate-btn">$3 Donation</button>
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+  const stripe = Stripe("YOUR_PUBLIC_STRIPE_KEY");
+  document.getElementById("donate-btn").addEventListener("click", () => {
+    stripe.redirectToCheckout({
+      lineItems: [{ price: 'price_12345', quantity: 1 }],
+      mode: 'payment',
+      successUrl: window.location.origin + '/success.html',
+      cancelUrl: window.location.origin + '/cancel.html',
+    });
+  });
+</script>
+
+
+💬 Prompt to Integrate into the App UI
+You can use this as a popup message, section header, or modal text:
+🌊 Support Wave Scout
+ Help us keep improving your beach safety experience with real-time tools and updates.
+Your contribution of $1 to $5 USD makes a big difference!
+💙 Thank you for your support — Let’s Beach Safely!
+[Donate $1] [Donate $3] [Donate $5]
