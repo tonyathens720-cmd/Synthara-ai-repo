@@ -1,4 +1,9 @@
-# This is a basic workflow to help you get started with Actions
+name: Deploy Synthara AI to Cloud RUN # This is name of your workflow
+on:
+push:
+branches:
+  -main # This is the trigge: runs every time you push to the main branch
+
 
 name: CI
 
