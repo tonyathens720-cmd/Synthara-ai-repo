@@ -27,7 +27,9 @@ jobs:
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          project_id: banded-advice-453200-m1  # <-- Change to your actual project ID!
-          service: Synthara-ai                # <-- Change to your actual Cloud Run service name!
+          project_id:
+banded-advice-453200-m1  
+          service:
+Synthara-ai                
           region: us-central1
-          source: .
+          source: '.'
