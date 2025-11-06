@@ -161,6 +161,7 @@ jobs:
 
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
+commit changes
         with:
           project_id: banded-advice-453200-m1
           service: Synthara-ai
