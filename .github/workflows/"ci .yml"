@@ -19,7 +19,7 @@ jobs:
         id: auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          credentials_json: ${{ secrets.GCPSAKEY }}
 
       - name: Set Up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -27,9 +27,7 @@ jobs:
       - name: Deploy to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         with:
-          project_id:
-banded-advice-453200-m1  
-          service:
-Synthara-ai                
+          project_id: banded-advice-453200-m1 
+          service: Synthara-ai             
           region: us-central1
           source: '.'
