@@ -1,33 +1,27 @@
-
-name: Deploy Synthara AI to Cloud Run
-
+name:DeploySyntharaAItoCloudRun
 on:
   push:
-    branches: [main]
+    branches:[main]
   pull_request:
-    branches: [main]
+    branches:[main]
   workflow_dispatch:
-
 jobs:
   build-and-deploy:
-    runs-on: ubuntu-latest
+    runs-on:ubuntu-latest
     steps:
-      - name: Check out repository code
-        uses: actions/checkout@v3
-
-      - name: Authenticate to Google Cloud
-        id: auth
-        uses: google-github-actions/auth@v2
+      - name:Checkoutrepositorycode
+        uses:actions/checkout@v3
+      - name:AuthenticatetoGoogleCloud
+        id:auth
+        uses:google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCPSAKEY }}
-
-      - name: Set Up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
-      - name: Deploy to Cloud Run
-        uses: google-github-actions/deploy-cloudrun@v2
+          credentials_json:${{secrets.GCPSAKEY}}
+      - name:SetUpCloudSDK
+        uses:google-github-actions/setup-gcloud@v2
+      - name:DeploytoCloudRun
+        uses:google-github-actions/deploy-cloudrun@v2
         with:
-          project_id: banded-advice-453200-m1 
-          service: Synthara-ai             
-          region: us-central1
-          source: '.'
+          project_id:banded-advice-453200-m1
+          service:Synthara-ai
+          region:us-central1
+          source:.
