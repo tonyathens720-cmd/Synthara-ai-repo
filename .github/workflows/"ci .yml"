@@ -5,7 +5,7 @@ branches:
   -main # This is the trigge: runs every time you push to the main branch
 
 
-name: CI
+name: Olivia
 
 # Controls when the workflow will run
 on:
