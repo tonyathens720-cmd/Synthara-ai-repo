@@ -1,0 +1,24 @@
+/adllc-app/
+│
+├── backend/
+│   ├── main.py               # FastAPI/Flask entry point
+│   ├── agents/
+│   │   ├── olivia_agent.py
+│   │   ├── marion_agent.py
+│   │   └── guardian_agent.py
+│   ├── auth/
+│   │   └── verify_user.py
+│   ├── services/
+│   │   └── google_ai.py      # Connects to Google AI Studio endpoint
+│   ├── requirements.txt
+│   └── Dockerfile
+│
+├── frontend/
+│   ├── index.html
+│   ├── style.css
+│   └── app.js
+│
+├── cloudbuild.yaml           # Cloud Build trigger config
+├── .gcloudignore
+├── .gitignore
+└── README.md
