@@ -80,3 +80,13 @@ def verify_identity(user_id, entered_code):
     elif doc.exists:
         return doc.to_dict().get("role", "client")
     return "client"
+@app.post("/api/change_password")
+async def change_password(req: Request):
+    data = await req.json()
+    user_id = data["user_id"]
+    new_pass = data["new_password"]
+    confirm_pass = data["confirm_password"]
+    if new_pass != confirm_pass:
+        return {"status": "error", "msg": "Passwords do not match."}
+    db.collection("users").document(user_id).update({"password": hash_password(new_pass)})
+    return {"status": "success", "msg": "Password updated."}
