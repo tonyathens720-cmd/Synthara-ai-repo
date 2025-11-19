@@ -382,3 +382,46 @@ const App = () => {
 };
 
 export default App;
+# Synthara AI - O.L.I.V.I.A. Configuration
+
+agent:
+  name: "O.L.I.V.I.A."
+  entity: "Synthara AI"
+  reports_to: "Athens Diversified LLC"
+  
+repository:
+  name: "synthara-ai-repo"
+  owner: "your-github-username"
+  url: "https://github.com/your-username/synthara-ai-repo"
+
+google_cloud:
+  project_id: "synthara-ai-project"
+  dashboard_id: "synthara_dashboard_001"
+  service_account: "olivia@synthara-ai-project.iam.gserviceaccount.com"
+
+permissions:
+  github:
+    - read_repo
+    - write_repo
+    - manage_workflows
+  google_cloud:
+    - ai_studio_access
+    - dashboard_read_write
+    - logging
+
+hierarchy:
+  parent_entity: "Athens Diversified LLC"
+  sibling_entities:
+    - "AeroSync Solutions"
+  
+integration:
+  google_ai_studio: true
+  github_actions: true
+  dashboard_enabled: true
+
+# Optional: Add branding assets
+branding:
+  parent_logo: "https://your-domain.com/logos/athens-logo.png"
+  olivia_logo: "https://your-domain.com/logos/olivia-logo.png"
+  marion_logo: "https://your-domain.com/logos/marion-logo.png"
+  hero_image: "https://your-domain.com/images/ai-hub-hero.png"
