@@ -90,3 +90,95 @@ async def change_password(req: Request):
         return {"status": "error", "msg": "Passwords do not match."}
     db.collection("users").document(user_id).update({"password": hash_password(new_pass)})
     return {"status": "success", "msg": "Password updated."}
+powershell
+# ==============================================================================
+# ATHENS DIVERSIFIED - MASTER ADMIN & DATA SHARING SCRIPT
+# This script is designed for the official AI Hub shared data repository system.
+# It provides a controlled way for Mr. Jeffries (admin) to synchronize, upload,
+# and manage project data so both humans (admins/users) and AI agents (like Olivia)
+# have secure, up-to-date access to common dashboard data in a shared location.
+# ==============================================================================
+
+param(
+    [string]$DataPath = "C:\Synthara\shared_data",       # Where to output dashboard data
+    [string]$OutputFormat = "json"                      # Can be 'json' or 'csv'
+)
+
+# ------------------------------------------------------------------------------
+# 1. CREATE SHARED DATA DIRECTORY (if it doesn't exist)
+# ------------------------------------------------------------------------------
+if (!(Test-Path $DataPath)) {
+    # Make sure the shared folder is present for cross-agent and user visibility
+    New-Item -ItemType Directory -Path $DataPath -Force | Out-Null
+}
+
+# ------------------------------------------------------------------------------
+# 2. DEFINE REPOSITORIES TO SYNC AND INCLUDE IN DASHBOARD DATA
+# ------------------------------------------------------------------------------
+$projectDirectories = @(
+    "C:\path\to\synthara-ai-repo",             # Synthara AI agent code and data
+    "C:\path\to\athens-diversified-repo"       # Parent/umbrella repo (Athens Diversified)
+    # Add more repositories here as needed
+)
+
+# ------------------------------------------------------------------------------
+# 3. GATHER FOLDER AND FILE DATA FROM PROJECT DIRECTORIES
+# ------------------------------------------------------------------------------
+$folderData = @()
+foreach ($dir in $projectDirectories) {
+    if (Test-Path $dir) {
+        # List all files with name, size, and last modified time
+        $items = Get-ChildItem -Path $dir -Recurse -File | 
+            Select-Object FullName, Length, LastWriteTime
+        
+        # Append structured block for each directory
+        $folderData += @{
+            "directory" = $dir
+            "files"     = $items
+            "timestamp" = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+        }
+    }
+}
+
+# ------------------------------------------------------------------------------
+# 4. OUTPUT THE DASHBOARD DATA AS JSON FOR OLIVIA, MARION, AND DASH UI
+# ------------------------------------------------------------------------------
+$jsonOutput = $folderData | ConvertTo-Json -Depth 4
+
+# Output JSON data to shared location
+$jsonPath = Join-Path $DataPath "dashboard_data.json"
+$jsonOutput | Out-File -FilePath $jsonPath -Encoding UTF8 -Force
+
+Write-Host "✅ Dashboard data written to: $jsonPath"
+
+# ------------------------------------------------------------------------------
+# 5. OPTIONAL: OUTPUT THE DASHBOARD DATA AS CSV (for human reporting)
+# ------------------------------------------------------------------------------
+if ($OutputFormat -eq "csv") {
+    $csvPath = Join-Path $DataPath "dashboard_data.csv"
+    $flatList = @()
+    foreach ($entry in $folderData) {
+        foreach ($file in $entry.files) {
+            $flatList += [PSCustomObject]@{
+                Directory      = $entry.directory
+                FileName       = $file.FullName
+                SizeKB         = [math]::Round($file.Length / 1KB, 2)
+                LastWriteTime  = $file.LastWriteTime
+                SnapshotTime   = $entry.timestamp
+            }
+        }
+    }
+    $flatList | Export-Csv -Path $csvPath -NoTypeInformation -Force
+    Write-Host "✅ Dashboard CSV written to: $csvPath"
+}
+
+# ------------------------------------------------------------------------------
+# 6. LOG ADMIN ACTION
+# ------------------------------------------------------------------------------
+$logFile = Join-Path $DataPath "admin_audit_log.txt"
+$logEntry = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | User: $env:USERNAME | Generated dashboard data at $jsonPath"
+Add-Content -Path $logFile -Value $logEntry
+
+# ------------------------------------------------------------------------------
+# END OF MASTER ADMIN & DATA SHARING SCRIPT
+# See documentation for integration with Olivia agent and dashboards.
